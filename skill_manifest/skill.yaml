@@ -1,0 +1,104 @@
+name: chemvision-chemistry-agent
+version: 1.0.0
+display_name: "ChemVision AI 化学家智能体"
+description: >
+  基于 ≤35B 本地小模型（Ollama + Qwen3.6-35B-A3B）驱动的化学工具调用 Agent Skill。
+  通过 PubChem 和 OPSIN 真实化学数据库查询，实现化学名称→结构解析、SMILES 信息查询、
+  化学品安全信息查询、反应方程式推测、化学结构图片识别等能力。
+  LLM 不再"凭记忆"生成化学数据，而是通过工具调用验证事实，大幅减少化学幻觉。
+
+author: ChemVision Team
+license: MIT
+tags:
+  - AIPC
+  - chemistry
+  - agent
+  - tool-calling
+  - pubchem
+  - ollama
+  - function-calling
+
+# 运行环境
+runtime:
+  language: python
+  version: ">=3.10"
+  dependencies:
+    - fastapi>=0.115.0
+    - uvicorn>=0.30.0
+    - httpx>=0.27.0
+    - pydantic>=2.0.0
+    - pyyaml>=6.0
+    - pillow>=10.0.0
+    - ollama>=0.4.0
+
+# 推荐模型（比赛基准）
+recommended_models:
+  - name: qwen3.6-35b-a3b
+    source: ollama
+    description: "Qwen3.6-35B-A3B，比赛基准测试模型"
+  - name: qwen2.5-32b-instruct
+    source: ollama
+    description: "Qwen2.5-32B，备选模型"
+
+# Agent 大脑配置
+agent:
+  engine: ollama
+  default_model: qwen3.6-35b-a3b
+  temperature: 0.1
+  max_tool_rounds: 5
+
+# 工具列表
+tools:
+  - name: name_to_structure
+    description: "化学名称→SMILES 结构解析"
+    category: chemistry
+
+  - name: inspect_smiles
+    description: "SMILES→化学信息查询"
+    category: chemistry
+
+  - name: safety_info
+    description: "化学品安全信息查询"
+    category: safety
+
+  - name: predict_reaction
+    description: "化学反应方程式推测"
+    category: chemistry
+
+  - name: ocr_chemistry
+    description: "化学结构图片 OCR 识别"
+    category: vision
+
+# API 端点
+api:
+  base_url: http://localhost:8899
+  endpoints:
+    - method: POST
+      path: /api/chat
+      description: "Agent 对话接口"
+    - method: POST
+      path: /api/tools/call
+      description: "直接工具调用"
+    - method: GET
+      path: /api/tools/list
+      description: "列出可用工具"
+    - method: GET
+      path: /api/health
+      description: "健康检查"
+
+# 示例
+examples:
+  - input: "苯甲酸的分子结构是什么？"
+    description: "化学名称解析"
+  - input: "CC(=O)Oc1ccccc1C(=O)O 是什么物质？"
+    description: "SMILES 信息查询"
+  - input: "乙酸和乙醇反应生成什么？"
+    description: "化学反应推测"
+  - input: "苯的安全风险有哪些？"
+    description: "安全信息查询"
+
+# 比赛信息
+competition:
+  name: "AI PC Agent Skills 征文活动"
+  organizer: "Intel + 魔搭社区 (ModelScope)"
+  tags: ["AIPC", "Intel"]
