@@ -1,0 +1,192 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ChemVision Agent Skill",
+    "description": "AI 化学家智能体 - 基于 ≤35B 本地模型驱动化学工具调用的 Agent Skill",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8899",
+      "description": "本地服务（QwenPaw 调用地址）"
+    }
+  ],
+  "paths": {
+    "/api/chat": {
+      "post": {
+        "summary": "Agent 对话（推荐入口）",
+        "description": "与化学智能体对话。Agent 自动决定调用哪些工具，并汇总结果返回自然语言回答。",
+        "operationId": "chat",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "用户输入文本，如 '苯甲酸的分子结构是什么？'"
+                  },
+                  "history": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": { "type": "string", "enum": ["user", "assistant"] },
+                        "content": { "type": "string" }
+                      }
+                    },
+                    "description": "对话历史（可选，多轮对话时使用）"
+                  },
+                  "image_base64": {
+                    "type": "string",
+                    "description": "图片 base64 编码（可选，多模态识别时使用）"
+                  }
+                },
+                "required": ["message"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent 回复",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reply": {
+                      "type": "string",
+                      "description": "Agent 的自然语言回答"
+                    },
+                    "tool_calls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tool": { "type": "string", "description": "调用的工具名" },
+                          "arguments": { "type": "object", "description": "工具参数" },
+                          "result": { "type": "object", "description": "工具返回结果" }
+                        }
+                      },
+                      "description": "工具调用记录"
+                    },
+                    "rounds": {
+                      "type": "integer",
+                      "description": "Agent 工具调用轮数"
+                    },
+                    "error": {
+                      "type": "string",
+                      "description": "错误信息（如有）"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/call": {
+      "post": {
+        "summary": "直接调用工具（跳过 Agent）",
+        "description": "直接调用指定化学工具，不经过 Agent 路由。适合调试或外部 Agent 框架直接调用。",
+        "operationId": "callTool",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tool_name": {
+                    "type": "string",
+                    "enum": ["name_to_structure", "inspect_smiles", "safety_info", "predict_reaction", "ocr_chemistry"],
+                    "description": "要调用的工具名称"
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "工具参数，格式参见各工具定义"
+                  }
+                },
+                "required": ["tool_name", "arguments"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "工具执行结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "result": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/list": {
+      "get": {
+        "summary": "列出所有可用工具",
+        "operationId": "listTools",
+        "responses": {
+          "200": {
+            "description": "工具列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "description": { "type": "string" },
+                          "parameters": { "type": "object" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "健康检查",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "服务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "model": { "type": "string", "example": "qwen3.6-35b-a3b" },
+                    "tools_count": { "type": "integer", "example": 5 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
