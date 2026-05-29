@@ -11,6 +11,7 @@ build/
 .venv/
 venv/
 env/
+.conda/
 
 # IDE
 .vscode/
@@ -27,8 +28,3 @@ env/
 # OS
 .DS_Store
 Thumbs.db
-
-# 测试缓存
-.pytest_cache/
-.coverage
-htmlcov/
