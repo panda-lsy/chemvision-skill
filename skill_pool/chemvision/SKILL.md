@@ -97,7 +97,7 @@ When the result contains `svg_url`, open it with browser_visible to show the mol
 {"action": "open", "url": "http://localhost:8899/api/svg/CCO"}
 ```
 
-Then take a screenshot and send the image to the user along with the chemical data. Only open ONE URL per query — do not open both `svg_url` and `render_url`.
+Then take a screenshot and send the image to the user along with the chemical data.
 
 ## Notes
 

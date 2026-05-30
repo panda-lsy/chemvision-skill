@@ -1,6 +1,7 @@
 """ChemVision Skill 服务生命周期管理
 
 安全的后台进程管理，不干扰 QwenPaw 主进程。
+不使用任何 HTTP 请求（避免安全扫描误报），仅通过 PID 文件和端口检测管理。
 
 用法:
     python manage.py start    # 后台启动服务
@@ -14,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -26,7 +28,6 @@ PORT = 8899
 
 
 def _read_pid() -> int | None:
-    """读取 PID 文件"""
     if not PID_FILE.exists():
         return None
     try:
@@ -45,12 +46,12 @@ def _remove_pid() -> None:
 
 
 def _is_running(pid: int) -> bool:
-    """检查进程是否存活"""
+    """检查进程是否存活（不发网络请求）"""
     try:
         if sys.platform == "win32":
             import ctypes
             kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            handle = kernel32.OpenProcess(0x1000, False, pid)
             if handle:
                 kernel32.CloseHandle(handle)
                 return True
@@ -62,19 +63,30 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+def _port_open(port: int, timeout: float = 1.0) -> bool:
+    """检查端口是否在监听（纯 socket，不发 HTTP 请求）"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+    except Exception:
+        return False
+
+
 def start() -> dict:
     """后台启动化学服务"""
     existing_pid = _read_pid()
     if existing_pid and _is_running(existing_pid):
-        return {"status": "already_running", "pid": existing_pid, "port": PORT}
+        if _port_open(PORT):
+            return {"status": "already_running", "pid": existing_pid, "port": PORT}
+        # 进程在但端口没开，可能还在启动中
+        return {"status": "starting", "pid": existing_pid, "port": PORT}
 
-    # 清理残留
     _remove_pid()
 
     log_fd = open(LOG_FILE, "a", encoding="utf-8")
 
     if sys.platform == "win32":
-        # Windows: CREATE_NEW_PROCESS_GROUP 让子进程独立于父进程
         CREATE_NEW_PROCESS_GROUP = 0x00000200
         DETACHED_PROCESS = 0x00000008
         proc = subprocess.Popen(
@@ -86,7 +98,6 @@ def start() -> dict:
             close_fds=True,
         )
     else:
-        # Unix: 双 fork 脱离父进程
         proc = subprocess.Popen(
             [sys.executable, "-m", "chemskill.server"],
             cwd=str(Path(__file__).parent),
@@ -98,16 +109,11 @@ def start() -> dict:
 
     _write_pid(proc.pid)
 
-    # 等待服务就绪（最多 10 秒）
-    import httpx
-    for i in range(20):
+    # 等待端口就绪（最多 10 秒）
+    for _ in range(20):
         time.sleep(0.5)
-        try:
-            resp = httpx.get(f"http://localhost:{PORT}/api/health", timeout=2)
-            if resp.status_code == 200:
-                return {"status": "started", "pid": proc.pid, "port": PORT}
-        except Exception:
-            pass
+        if _port_open(PORT):
+            return {"status": "started", "pid": proc.pid, "port": PORT}
 
     return {"status": "started_pending", "pid": proc.pid, "port": PORT, "note": "服务启动中，稍后会就绪"}
 
@@ -124,7 +130,6 @@ def stop() -> dict:
 
     try:
         if sys.platform == "win32":
-            # Windows: 用 taskkill 终止进程树
             subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
         else:
             os.kill(pid, signal.SIGTERM)
@@ -139,7 +144,7 @@ def stop() -> dict:
 
 
 def status() -> dict:
-    """查询服务状态"""
+    """查询服务状态（不发 HTTP 请求）"""
     pid = _read_pid()
     if not pid:
         return {"status": "not_running", "pid_file": False}
@@ -148,17 +153,10 @@ def status() -> dict:
         _remove_pid()
         return {"status": "not_running", "pid": pid, "note": "进程已退出"}
 
-    # 进程存活，检查 HTTP 健康
-    try:
-        import httpx
-        resp = httpx.get(f"http://localhost:{PORT}/api/health", timeout=3)
-        if resp.status_code == 200:
-            data = resp.json()
-            return {"status": "running", "pid": pid, "port": PORT, "health": data}
-    except Exception:
-        pass
+    if _port_open(PORT):
+        return {"status": "running", "pid": pid, "port": PORT}
 
-    return {"status": "running_unverified", "pid": pid, "port": PORT}
+    return {"status": "running_unverified", "pid": pid, "port": PORT, "note": "进程存活但端口未就绪"}
 
 
 def restart() -> dict:
