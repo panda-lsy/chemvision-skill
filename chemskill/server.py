@@ -1,10 +1,12 @@
-"""FastAPI 服务端入口
+"""FastAPI 化学工具服务端
 
-提供 HTTP API 接口，支持：
-- POST /api/chat         对话接口（Agent 主入口）
-- POST /api/tools/call   直接调用工具（跳过 Agent）
-- GET  /api/tools/list   列出所有可用工具
-- GET  /api/health       健康检查
+纯工具层，不包含内层 Agent（Agent 角色由 QwenPaw 承担）。
+
+端点：
+- POST /api/tools/call   调用单个工具
+- GET  /api/tools/list    列出所有工具
+- GET  /api/health        健康检查
+- GET  /api/svg/{smiles}  SMILES → SVG 结构图渲染
 """
 
 from __future__ import annotations
@@ -17,11 +19,10 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .agent import ChemAgent
 from .config import SkillConfig
 from .tools.registry import ToolRegistry
 from .tools.name_resolver import NameToStructureTool
@@ -39,12 +40,10 @@ logger = logging.getLogger(__name__)
 # ── 全局实例 ──
 config = SkillConfig()
 registry = ToolRegistry()
-agent: Optional[ChemAgent] = None
 
 
 def _register_tools() -> None:
     """注册所有化学工具"""
-    pubchem = None  # 各工具内部自行创建 client
     registry.register(NameToStructureTool())
     registry.register(SmilesInspectorTool())
     registry.register(SafetyLookupTool())
@@ -55,18 +54,16 @@ def _register_tools() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global agent
     _register_tools()
-    agent = ChemAgent(config=config, registry=registry)
-    logger.info(f"ChemVision Skill 已启动 | 模型: {config.ollama_model} | 端口: {config.server_port}")
+    logger.info(f"ChemVision Skill 已启动 | 端口: {config.server_port}")
     yield
     logger.info("ChemVision Skill 已关闭")
 
 
 app = FastAPI(
     title="ChemVision Agent Skill",
-    description="AI 化学家智能体 - 基于 ≤35B 本地模型驱动化学工具调用",
-    version="1.0.0",
+    description="AI 化学家工具服务 — PubChem + OPSIN 化学数据查询 + smiles-drawer 结构渲染",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -85,19 +82,6 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ── 请求/响应模型 ──
 
-class ChatRequest(BaseModel):
-    message: str = Field(..., description="用户输入文本")
-    history: Optional[list[dict]] = Field(None, description="对话历史")
-    image_base64: Optional[str] = Field(None, description="图片 base64（多模态）")
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    tool_calls: list[dict] = []
-    rounds: int = 1
-    error: Optional[str] = None
-
-
 class ToolCallRequest(BaseModel):
     tool_name: str = Field(..., description="工具名称")
     arguments: dict = Field(default_factory=dict, description="工具参数")
@@ -114,70 +98,14 @@ class ToolCallResponse(BaseModel):
 async def health():
     return {
         "status": "ok",
-        "model": config.ollama_model,
         "tools_count": len(registry),
-        "svg_renderer": "smiles-drawer",
+        "tools": [t["name"] for t in registry.list_tools()],
     }
-
-
-@app.get("/render", response_class=HTMLResponse)
-async def render_page(smiles: str = "", name: str = "", formula: str = "", weight: str = ""):
-    """SMILES 分子结构渲染页面（smiles-drawer SVG）"""
-    html_file = STATIC_DIR / "render.html"
-    if not html_file.exists():
-        return HTMLResponse("<h1>render.html 未找到</h1>", status_code=500)
-    return HTMLResponse(html_file.read_text(encoding="utf-8"))
-
-
-@app.get("/api/svg/{smiles:path}")
-async def get_svg(smiles: str):
-    """返回自包含 SVG 渲染页面（可截图/嵌入）
-
-    返回一个 HTML 页面，加载后自动渲染 SMILES 结构图。
-    QwenPaw 可用 browser_visible 打开后截图展示给用户。
-    """
-    from urllib.parse import quote as url_quote
-    smiles_decoded = smiles.strip()
-    if not smiles_decoded:
-        return HTMLResponse("<p>缺少 smiles 参数</p>", status_code=400)
-
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-  body {{ margin:0; background:#fff; display:flex; align-items:center; justify-content:center; height:100vh; }}
-  svg {{ max-width:100%; }}
-</style></head><body>
-<svg id="mol" width="500" height="400"></svg>
-<script src="/static/smiles-drawer.js"></script>
-<script>
-  var svgDrawer = new SmilesDrawer.SvgDrawer({{width:500,height:400,bondThickness:2,padding:20}});
-  SmilesDrawer.parse("{smiles_decoded}", function(tree) {{
-    svgDrawer.draw(tree, document.getElementById('mol'), 'light');
-  }}, function(err) {{
-    document.body.innerHTML = '<p style="color:red;padding:20px">渲染失败: ' + err + '</p>';
-  }});
-</script></body></html>"""
-    return HTMLResponse(html)
 
 
 @app.get("/api/tools/list")
 async def list_tools():
     return {"tools": registry.list_tools()}
-
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    result = await agent.chat(
-        user_message=request.message,
-        history=request.history,
-        image_base64=request.image_base64,
-    )
-    return ChatResponse(
-        reply=result.get("reply", ""),
-        tool_calls=result.get("tool_calls", []),
-        rounds=result.get("rounds", 1),
-        error=result.get("error"),
-    )
 
 
 @app.post("/api/tools/call", response_model=ToolCallResponse)
@@ -187,10 +115,42 @@ async def call_tool(request: ToolCallRequest):
     return ToolCallResponse(success=success, result=result)
 
 
+@app.get("/api/svg/{smiles:path}")
+async def get_svg(smiles: str):
+    """SMILES → SVG 分子结构图（smiles-drawer 前端渲染）
+
+    QwenPaw 用 browser_visible 打开此 URL，截图后发送给用户。
+    """
+    smiles_decoded = smiles.strip()
+    if not smiles_decoded:
+        return HTMLResponse("<p>缺少 smiles 参数</p>", status_code=400)
+
+    # 转义 SMILES 中的特殊字符防止 XSS
+    safe = smiles_decoded.replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>ChemVision - {safe}</title>
+<style>
+  body {{ margin:0; background:#fff; display:flex; align-items:center; justify-content:center; height:100vh; }}
+  svg {{ max-width:100%; }}
+</style></head><body>
+<svg id="mol" width="500" height="400"></svg>
+<script src="/static/smiles-drawer.js"></script>
+<script>
+  var svgDrawer = new SmilesDrawer.SvgDrawer({{width:500,height:400,bondThickness:2,padding:20}});
+  SmilesDrawer.parse("{safe}", function(tree) {{
+    svgDrawer.draw(tree, document.getElementById('mol'), 'light');
+  }}, function(err) {{
+    document.body.innerHTML = '<p style="color:red;padding:20px">SMILES 渲染失败: ' + err + '</p>';
+  }});
+</script></body></html>"""
+    return HTMLResponse(html)
+
+
 # ── 启动入口 ──
 
 def main():
-    """CLI 启动入口"""
     uvicorn.run(
         "chemskill.server:app",
         host=config.server_host,
