@@ -1,7 +1,8 @@
 """工具4: 化学反应推测
 
 输入反应物和条件，推测产物和反应方程式。
-数据源：LLM 推理 + 化学规则校验（PubChem 验证产物）
+优先通过 Ollama LLM 推测；若 Ollama 不可用，返回 fallback 标记，
+由 QwenPaw Agent 自行回答（Agent 本身就是 LLM）。
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ class ReactionPredictTool(ChemTool):
             "推测化学反应的产物和条件。"
             "输入反应物名称，返回可能的产物、反应方程式和反应条件。"
             "适用于：用户询问两种物质反应会生成什么、反应条件是什么时调用。"
+            "如果返回 fallback=true，说明 Ollama 不可用，请 Agent 自行根据化学知识回答。"
         )
 
     @property
@@ -54,7 +56,6 @@ class ReactionPredictTool(ChemTool):
         if not r:
             return {"success": False, "error": "请提供反应物"}
 
-        # 使用 LLM 推测反应（调用 Ollama，不开 tool calling）
         prompt = self._build_reaction_prompt(r, conditions)
 
         try:
@@ -68,10 +69,7 @@ class ReactionPredictTool(ChemTool):
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(url, json=payload)
                 if resp.status_code != 200:
-                    return {
-                        "success": False,
-                        "error": f"模型推理失败 (HTTP {resp.status_code})",
-                    }
+                    return self._fallback(r, conditions, f"Ollama 不可用 (HTTP {resp.status_code})")
                 data = resp.json()
                 answer = data.get("response", "")
 
@@ -84,13 +82,26 @@ class ReactionPredictTool(ChemTool):
                 "disclaimer": "此结果为 LLM 推测，实际反应需以实验验证",
             }
 
-        except httpx.ConnectError:
-            return {
-                "success": False,
-                "error": "无法连接 Ollama 服务，请确认 Ollama 已启动",
-            }
+        except (httpx.ConnectError, httpx.ReadTimeout):
+            return self._fallback(r, conditions, "Ollama 服务未启动或不可达")
         except Exception as e:
-            return {"success": False, "error": f"推测失败: {e}"}
+            return self._fallback(r, conditions, str(e))
+
+    @staticmethod
+    def _fallback(reactants: str, conditions: str, reason: str) -> dict:
+        """Ollama 不可用时，返回 fallback 标记，让 Agent 自行回答"""
+        return {
+            "success": True,
+            "fallback": True,
+            "reactants": reactants,
+            "conditions": conditions or "标准条件",
+            "reason": reason,
+            "instruction": (
+                "Ollama 本地模型不可用，请 Agent 直接根据化学知识回答。"
+                "请给出：1. 反应类型 2. 化学方程式（配平） 3. 反应条件 4. 产物说明。"
+                "回答后调用 /api/equation/{方程式} 渲染专业化学方程式图片发给用户。"
+            ),
+        }
 
     @staticmethod
     def _build_reaction_prompt(reactants: str, conditions: str) -> str:

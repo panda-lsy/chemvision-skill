@@ -107,7 +107,35 @@ When the result contains `svg_url`, render and send the molecular structure imag
 send_file_to_user(file_path="chem_structure.png", caption="分子结构图")
 ```
 
-This delivers the image directly in the chat. Always include the text chemical data (name, SMILES, formula, weight) alongside the image.
+### Chemical equation rendering
+
+After answering a reaction question, render the equation as a professional image:
+
+1. **Format the equation** using mhchem `\ce{}` notation:
+   - Use `->` for reactions, `<=>` for equilibrium
+   - Subscripts: `H2O`, `CH3COOH`
+   - Superscripts: `Fe^{2+}`, `SO4^{2-}`
+   - States: `(g)`, `(l)`, `(s)`, `(aq)`
+   - Conditions above arrow: `->[\\text{催化剂}][\\text{加热}]`
+
+2. **Open the equation URL** in a browser:
+
+```
+http://localhost:8899/api/equation/{equation}
+```
+
+For example:
+```
+http://localhost:8899/api/equation/CH3COOH+C2H5OH<=>[\text{浓硫酸}][\text{加热}]CH3COOC2H5+H2O
+```
+
+3. **Screenshot and send** using `send_file_to_user`.
+
+### Fallback: Ollama not available
+
+If `predict_reaction` returns `fallback=true`, the Agent should:
+1. Answer the reaction question directly using its own chemistry knowledge
+2. Render the equation via `/api/equation/{equation}` and send the image
 
 ## Notes
 
