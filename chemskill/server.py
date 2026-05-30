@@ -129,6 +129,37 @@ async def render_page(smiles: str = "", name: str = "", formula: str = "", weigh
     return HTMLResponse(html_file.read_text(encoding="utf-8"))
 
 
+@app.get("/api/svg/{smiles:path}")
+async def get_svg(smiles: str):
+    """返回自包含 SVG 渲染页面（可截图/嵌入）
+
+    返回一个 HTML 页面，加载后自动渲染 SMILES 结构图。
+    QwenPaw 可用 browser_visible 打开后截图展示给用户。
+    """
+    from urllib.parse import quote as url_quote
+    smiles_decoded = smiles.strip()
+    if not smiles_decoded:
+        return HTMLResponse("<p>缺少 smiles 参数</p>", status_code=400)
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body {{ margin:0; background:#fff; display:flex; align-items:center; justify-content:center; height:100vh; }}
+  svg {{ max-width:100%; }}
+</style></head><body>
+<svg id="mol" width="500" height="400"></svg>
+<script src="/static/smiles-drawer.js"></script>
+<script>
+  var drawer = new SmilesDrawer.Drawer({{width:500,height:400,bondThickness:1.2,padding:20,theme:'light'}});
+  SmilesDrawer.parse("{smiles_decoded}", function(tree) {{
+    drawer.draw(tree, document.getElementById('mol'), 'light');
+  }}, function(err) {{
+    document.body.innerHTML = '<p style="color:red;padding:20px">渲染失败: ' + err + '</p>';
+  }});
+</script></body></html>"""
+    return HTMLResponse(html)
+
+
 @app.get("/api/tools/list")
 async def list_tools():
     return {"tools": registry.list_tools()}

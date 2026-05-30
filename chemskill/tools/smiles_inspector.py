@@ -11,7 +11,7 @@ from typing import Optional
 from .registry import ChemTool
 from ..utils.pubchem_client import PubChemClient
 from ..utils.smiles_utils import normalize_smiles, validate_smiles
-from ..utils.svg_renderer import build_render_url
+from ..utils.svg_renderer import build_render_url, build_svg_url
 
 
 class SmilesInspectorTool(ChemTool):
@@ -77,6 +77,7 @@ class SmilesInspectorTool(ChemTool):
                 info.smiles, name=info.iupac_name, formula=info.molecular_formula,
                 weight=str(info.molecular_weight) if info.molecular_weight else None,
             )
+            result["svg_url"] = build_svg_url(info.smiles)
             return result
 
         if info.not_found:
