@@ -1,14 +1,14 @@
 [project]
 name = "chemvision-skill"
-version = "1.0.0"
-description = "ChemVision Agent Skill - AI 化学家智能体，基于 ≤35B 本地模型驱动化学工具调用"
+version = "3.0.0"
+description = "ChemVision Agent Skill — 化学数据查询工具服务（PubChem + OPSIN），供 Agent 调用"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     {name = "ChemVision Team"},
 ]
-keywords = ["chemistry", "agent", "skill", "ollama", "pubchem", "aipc", "openvino"]
+keywords = ["chemistry", "agent", "skill", "pubchem", "aipc", "tool-calling"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -22,12 +22,7 @@ dependencies = [
     "uvicorn>=0.30.0",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
-    "pyyaml>=6.0",
-    "pillow>=10.0.0",
 ]
-
-[project.optional-dependencies]
-ollama = ["ollama>=0.4.0"]
 
 [project.scripts]
 chemskill = "chemskill.server:main"
