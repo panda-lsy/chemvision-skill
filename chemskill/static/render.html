@@ -81,13 +81,13 @@
   <script src="/static/smiles-drawer.js"></script>
   <script>
     (function() {
-      const params = new URLSearchParams(window.location.search);
-      const smiles = params.get('smiles') || '';
-      const name = params.get('name') || '';
-      const formula = params.get('formula') || '';
-      const weight = params.get('weight') || '';
-      const container = document.getElementById('svg-container');
-      const infoDiv = document.getElementById('info');
+      var params = new URLSearchParams(window.location.search);
+      var smiles = params.get('smiles') || '';
+      var name = params.get('name') || '';
+      var formula = params.get('formula') || '';
+      var weight = params.get('weight') || '';
+      var container = document.getElementById('svg-container');
+      var infoDiv = document.getElementById('info');
 
       if (!smiles) {
         container.innerHTML = '<div id="error">缺少 SMILES 参数<br>用法: /render?smiles=CCO</div>';
@@ -95,37 +95,35 @@
       }
 
       // 构建信息行
-      let infoHtml = '';
-      if (name) infoHtml += `<div><span>名称:</span> ${name}</div>`;
-      infoHtml += `<div><span>SMILES:</span> ${smiles}</div>`;
-      if (formula) infoHtml += `<div><span>分子式:</span> ${formula}</div>`;
-      if (weight) infoHtml += `<div><span>分子量:</span> ${weight} g/mol</div>`;
+      var infoHtml = '';
+      if (name) infoHtml += '<div><span>名称:</span> ' + name + '</div>';
+      infoHtml += '<div><span>SMILES:</span> ' + smiles + '</div>';
+      if (formula) infoHtml += '<div><span>分子式:</span> ' + formula + '</div>';
+      if (weight) infoHtml += '<div><span>分子量:</span> ' + weight + ' g/mol</div>';
       infoDiv.innerHTML = infoHtml;
 
-      // 创建 SVG 元素
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      // 创建 SVG 元素（与 ChemVision 一致的方式）
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('id', 'structure-svg');
       svg.setAttribute('width', '450');
       svg.setAttribute('height', '350');
 
-      // 初始化 SmilesDrawer
-      const drawer = new SmilesDrawer.Drawer({
+      // 使用 SvgDrawer（不是 Drawer，Drawer 是 canvas 版本）
+      var svgDrawer = new SmilesDrawer.SvgDrawer({
         width: 450,
         height: 350,
-        bondThickness: 1.2,
-        fontSizeLarge: 12,
-        fontSizeSmall: 8,
+        bondThickness: 2,
         padding: 20,
-        theme: 'light',
+        atomVisualization: 'default',
       });
 
       // 解析并绘制
       SmilesDrawer.parse(smiles, function(tree) {
         container.innerHTML = '';
         container.appendChild(svg);
-        drawer.draw(tree, svg, 'light');
+        svgDrawer.draw(tree, svg, 'light');
       }, function(err) {
-        container.innerHTML = `<div id="error">SMILES 解析失败: ${err.message || err}<br><br>输入: ${smiles}</div>`;
+        container.innerHTML = '<div id="error">SMILES 解析失败: ' + (err.message || err) + '<br><br>输入: ' + smiles + '</div>';
       });
     })();
   </script>

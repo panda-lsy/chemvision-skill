@@ -150,9 +150,9 @@ async def get_svg(smiles: str):
 <svg id="mol" width="500" height="400"></svg>
 <script src="/static/smiles-drawer.js"></script>
 <script>
-  var drawer = new SmilesDrawer.Drawer({{width:500,height:400,bondThickness:1.2,padding:20,theme:'light'}});
+  var svgDrawer = new SmilesDrawer.SvgDrawer({{width:500,height:400,bondThickness:2,padding:20}});
   SmilesDrawer.parse("{smiles_decoded}", function(tree) {{
-    drawer.draw(tree, document.getElementById('mol'), 'light');
+    svgDrawer.draw(tree, document.getElementById('mol'), 'light');
   }}, function(err) {{
     document.body.innerHTML = '<p style="color:red;padding:20px">渲染失败: ' + err + '</p>';
   }});
