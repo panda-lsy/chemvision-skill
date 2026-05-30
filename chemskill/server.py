@@ -7,7 +7,7 @@
 - GET  /api/tools/list       列出工具
 - GET  /api/health           健康检查
 - GET  /api/svg/{smiles}     分子结构图
-- GET  /api/formula/{eq}     化学方程式渲染
+- GET  /api/formula/{eq}     化学方程式渲染（KaTeX + mhchem）
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ChemVision Agent Skill",
     description="化学工具服务 — PubChem + OPSIN 数据查询 + 分子结构渲染",
-    version="3.1.0",
+    version="3.2.0",
     lifespan=lifespan,
 )
 
@@ -130,168 +130,62 @@ async def get_svg(smiles: str):
 
 @app.get("/api/formula/{equation:path}")
 async def render_formula(equation: str):
-    """化学方程式渲染（纯 HTML + CSS）
+    r"""化学方程式渲染（KaTeX + mhchem，全部本地加载）
 
-    支持：下标（H2O）、上标（Fe^{2+}）、箭头（-> <=>）、条件标注（[加热]在箭头上/下方）
+    输入示例: CH3COOH+C2H5OH<=>[浓硫酸][加热]CH3COOC2H5+H2O
+    自动转换为 mhchem \ce{} 语法渲染。
     """
     raw = equation.strip()
     if not raw:
         return HTMLResponse("<p>缺少 equation 参数</p>", status_code=400)
 
-    html_content = _render_chem_html(raw)
+    ce_expr = _to_mhchem(raw)
+    safe_expr = _js_escape(ce_expr)
 
     return HTMLResponse(
         '<!DOCTYPE html><html><head><meta charset="utf-8"><title>equation</title>'
+        '<link rel="stylesheet" href="/static/katex.min.css">'
+        '<script src="/static/katex.min.js"></script>'
+        '<script src="/static/mhchem.min.js"></script>'
         '<style>'
         'body{margin:0;background:#fff;display:flex;align-items:center;justify-content:center;'
-        'min-height:100vh;padding:30px;font-family:"Times New Roman",Georgia,serif}'
-        '.eq{display:inline-flex;align-items:center;flex-wrap:nowrap;font-size:28px;letter-spacing:1px}'
-        '.eq sub{font-size:0.65em;vertical-align:sub}'
-        '.eq sup{font-size:0.65em;vertical-align:super}'
-        '.eq .plus{margin:0 6px}'
-        '.eq .coef{margin-right:2px}'
-        '.arr-box{display:inline-flex;flex-direction:column;align-items:center;'
-        'margin:0 10px;position:relative;min-width:48px}'
-        '.arr-box .cond{font-size:0.42em;color:#555;line-height:1.2;white-space:nowrap}'
-        '.arr-box .sym{font-size:1.1em;line-height:1}'
-        '#label{font-size:12px;color:#999;text-align:center;margin-bottom:16px;font-family:sans-serif}'
-        '</style></head><body><div>'
+        'min-height:100vh;padding:30px}'
+        '#box{text-align:center;padding:20px 40px}'
+        '.katex{font-size:1.8em}'
+        '#label{font-size:12px;color:#999;margin-bottom:14px;font-family:sans-serif}'
+        '</style></head><body><div id="box">'
         '<div id="label">ChemVision</div>'
-        f'<div class="eq">{html_content}</div>'
-        '</div></body></html>'
+        '<div id="render"></div></div>'
+        '<script>'
+        'try{katex.render("\\\\ce{' + safe_expr + '}",document.getElementById("render"),'
+        '{throwOnError:false,displayMode:true})}'
+        'catch(e){document.getElementById("render").innerHTML='
+        '"<p style=color:red>渲染失败: "+e.message+"</p>"}'
+        '</script></body></html>'
     )
 
 
-def _render_chem_html(eq: str) -> str:
-    """化学方程式纯文本 -> 带下标/上标/箭头条件的 HTML
+def _to_mhchem(eq: str) -> str:
+    r"""将用户输入格式转为 mhchem \ce{} 内容
 
-    规则：
-    - 元素后的数字 -> 下标: H2O -> H<sub>2</sub>O
-    - 数字在最前（配平系数）-> 保持原样: 2H2O
-    - ^{内容} -> 上标: Fe^{2+} -> Fe<sup>2+</sup>
-    - -> -> →, <=> -> ⇌
-    - [text] 紧邻箭头前 -> 条件在箭头上方
-    - [text] 紧邻箭头后 -> 条件在箭头下方
+    转换规则：
+    - [条件]紧邻箭头前 → 移到箭头后（mhchem 语法: arrow[above][below]）
+    - 其余内容原样保留（mhchem 自动处理下标/上标/箭头/系数）
     """
-    result = []
-    i = 0
-    n = len(eq)
-    pending_above = []  # 箭头前的条件
-    pending_below = []  # 箭头后的条件
-
-    while i < n:
-        ch = eq[i]
-
-        # 方括号条件标注
-        if ch == '[':
-            end = eq.find(']', i)
-            if end != -1:
-                cond_text = _html_esc(eq[i + 1:end])
-                # 先检查后面是否紧跟箭头
-                rest = eq[end + 1:].lstrip()
-                if rest.startswith('->') or rest.startswith('<=>'):
-                    pending_above.append(cond_text)
-                else:
-                    pending_below.append(cond_text)
-                i = end + 1
-                continue
-
-        # 上标: ^{...} 或 ^单字符
-        if ch == '^':
-            i += 1
-            if i < n and eq[i] == '{':
-                end = eq.find('}', i)
-                if end != -1:
-                    result.append(f'<sup>{_html_esc(eq[i + 1:end])}</sup>')
-                    i = end + 1
-                    continue
-            elif i < n:
-                result.append(f'<sup>{_html_esc(eq[i])}</sup>')
-                i += 1
-                continue
-
-        # 箭头：<=> 或 ->
-        arrow_sym = None
-        arrow_len = 0
-        if eq[i:i + 3] == '<=>':
-            arrow_sym, arrow_len = '⇌', 3
-        elif eq[i:i + 2] == '->':
-            arrow_sym, arrow_len = '→', 2
-        elif eq[i:i + 2] == '<-':
-            arrow_sym, arrow_len = '←', 2
-
-        if arrow_sym:
-            # 检查箭头后是否有紧随的条件（第一个在上，第二个在下）
-            j = i + arrow_len
-            while j < n and eq[j] == ' ':
-                j += 1
-            if j < n and eq[j] == '[':
-                end2 = eq.find(']', j)
-                if end2 != -1:
-                    text1 = _html_esc(eq[j + 1:end2])
-                    i = end2 + 1
-                    # 检查是否还有第二个条件
-                    while i < n and eq[i] == ' ':
-                        i += 1
-                    if i < n and eq[i] == '[':
-                        end3 = eq.find(']', i)
-                        if end3 != -1:
-                            pending_below.append(_html_esc(eq[i + 1:end3]))
-                            pending_above.append(text1)
-                            i = end3 + 1
-                        else:
-                            pending_below.append(text1)
-                    else:
-                        # 只有一个条件 → 放下方
-                        pending_below.append(text1)
-
-            # 渲染带条件的箭头
-            above_html = '<br>'.join(pending_above) if pending_above else '&nbsp;'
-            below_html = '<br>'.join(pending_below) if pending_below else '&nbsp;'
-            result.append(
-                f'<span class="arr-box">'
-                f'<span class="cond">{above_html}</span>'
-                f'<span class="sym">{arrow_sym}</span>'
-                f'<span class="cond">{below_html}</span>'
-                f'</span>'
-            )
-            pending_above.clear()
-            pending_below.clear()
-            continue
-
-        # + 号
-        if ch in ('+', '＋'):
-            result.append('<span class="plus">+</span>')
-            i += 1
-            continue
-
-        # 字母后的数字 -> 下标
-        if ch.isdigit() and i > 0:
-            prev = eq[i - 1]
-            if prev.isalpha() or prev in (')', ']', '}'):
-                j = i
-                while j < n and eq[j].isdigit():
-                    j += 1
-                result.append(f'<sub>{eq[i:j]}</sub>')
-                i = j
-                continue
-
-        result.append(_html_esc(ch))
-        i += 1
-
-    # 如果有未消费的 pending conditions（极端情况），追加
-    if pending_above or pending_below:
-        result.append(
-            '<span class="arr-box"><span class="cond">'
-            + '<br>'.join(pending_above + pending_below)
-            + '</span><span class="sym">?</span><span class="cond">&nbsp;</span></span>'
-        )
-
-    return ''.join(result)
+    result = re.sub(
+        r'(\[[^\]]+\])(\[[^\]]+\])?(<=>|->|<-)',
+        _rearrange_conditions,
+        eq,
+    )
+    return result
 
 
-def _html_esc(s: str) -> str:
-    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+def _rearrange_conditions(m: re.Match) -> str:
+    """重排条件到箭头后面（mhchem 格式）"""
+    cond1 = m.group(1)
+    cond2 = m.group(2) or ''
+    arrow = m.group(3)
+    return f'{arrow}{cond1}{cond2}'
 
 
 def _js_escape(s: str) -> str:
