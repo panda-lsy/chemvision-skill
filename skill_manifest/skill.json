@@ -1,0 +1,122 @@
+{
+  "skill_id": "chemvision-chemistry-agent",
+  "name": "ChemVision AI 化学家",
+  "version": "1.0.0",
+  "description": "基于 ≤35B 本地模型（Ollama + Qwen3.6-35B-A3B）驱动的化学工具调用 Agent Skill。通过 PubChem 和 OPSIN 真实化学数据库查询，实现化学名称→结构解析、SMILES 信息查询、化学品安全信息查询、反应方程式推测、化学结构图片识别等能力。LLM 不再凭记忆生成化学数据，而是通过工具调用验证事实，大幅减少化学幻觉。",
+  "author": "ChemVision Team",
+  "license": "MIT",
+  "tags": ["AIPC", "chemistry", "agent", "tool-calling", "pubchem", "ollama", "function-calling"],
+  "runtime": {
+    "language": "python",
+    "version": ">=3.10",
+    "start_command": "python -m chemskill.server",
+    "port": 8899,
+    "health_check": "/api/health"
+  },
+  "recommended_models": [
+    {
+      "name": "qwen3.6-35b-a3b",
+      "source": "ollama",
+      "description": "Qwen3.6-35B-A3B，比赛基准测试模型"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "name_to_structure",
+        "description": "将化学名称转换为分子结构（SMILES、分子式、分子量）。支持中文名、英文名、IUPAC名、俗名。数据源：PubChem + OPSIN",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "化学名称，如'苯甲酸'、'aspirin'、'ethanol'"
+            }
+          },
+          "required": ["name"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "inspect_smiles",
+        "description": "查询 SMILES 字符串对应的化学信息（IUPAC 名称、分子式、分子量、CID）。数据源：PubChem",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "smiles": {
+              "type": "string",
+              "description": "SMILES 字符串，如 'CC(=O)Oc1ccccc1C(=O)O'"
+            }
+          },
+          "required": ["smiles"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "safety_info",
+        "description": "查询化学品的安全信息，包括 GHS 危险标识、危害分类、安全提示。数据源：PubChem Safety",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "化学名称或 SMILES，如 '苯'、'ethanol'"
+            }
+          },
+          "required": ["query"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "predict_reaction",
+        "description": "推测化学反应的产物、方程式和反应条件。数据源：LLM 推理",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reactants": {
+              "type": "string",
+              "description": "反应物描述，如 '乙酸和乙醇'、'NaOH + HCl'"
+            },
+            "conditions": {
+              "type": "string",
+              "description": "可选的反应条件，如 '加热'、'催化剂硫酸'"
+            }
+          },
+          "required": ["reactants"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ocr_chemistry",
+        "description": "从化学结构图片中识别化合物（需要 base64 编码图片）。数据源：多模态 LLM",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "image_base64": {
+              "type": "string",
+              "description": "图片的 base64 编码（PNG/JPG）"
+            },
+            "question": {
+              "type": "string",
+              "description": "可选的额外问题"
+            }
+          },
+          "required": ["image_base64"]
+        }
+      }
+    }
+  ],
+  "api": {
+    "base_url": "http://localhost:8899",
+    "openapi_schema": "openapi.json"
+  }
+}
