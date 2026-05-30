@@ -11,6 +11,7 @@ from typing import Optional
 from .registry import ChemTool
 from ..utils.pubchem_client import PubChemClient
 from ..utils.smiles_utils import normalize_smiles, validate_smiles
+from ..utils.svg_renderer import smiles_to_svg
 
 
 class SmilesInspectorTool(ChemTool):
@@ -60,7 +61,7 @@ class SmilesInspectorTool(ChemTool):
         info = await self._pubchem.query_by_smiles(s)
 
         if info.smiles:
-            return {
+            result = {
                 "success": True,
                 "input_smiles": s,
                 "canonical_smiles": info.smiles,
@@ -72,6 +73,10 @@ class SmilesInspectorTool(ChemTool):
                 "inchi_key": info.inchi_key,
                 "source": "pubchem",
             }
+            svg = smiles_to_svg(info.smiles)
+            if svg:
+                result["svg"] = svg
+            return result
 
         if info.not_found:
             return {

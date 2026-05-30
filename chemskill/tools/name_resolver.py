@@ -13,6 +13,7 @@ from .registry import ChemTool
 from ..utils.pubchem_client import PubChemClient
 from ..utils.opsin_client import OpsinClient
 from ..utils.smiles_utils import normalize_smiles, is_likely_smiles
+from ..utils.svg_renderer import smiles_to_svg
 
 
 class NameToStructureTool(ChemTool):
@@ -101,6 +102,7 @@ class NameToStructureTool(ChemTool):
                     "iupac_name": opsin_result.iupac_name or query,
                     "source": "opsin",
                     "message": "由 OPSIN 解析成功，未能从 PubChem 获取补充信息",
+                    "svg": smiles_to_svg(opsin_result.smiles),
                 }
 
         # 4. 全部失败
@@ -117,7 +119,7 @@ class NameToStructureTool(ChemTool):
         source: str = "pubchem",
         english_hint: Optional[str] = None,
     ) -> dict:
-        return {
+        result = {
             "success": True,
             "query": original_query,
             "smiles": info.smiles,
@@ -128,6 +130,12 @@ class NameToStructureTool(ChemTool):
             "source": source,
             "english_hint": english_hint,
         }
+        # 附加 SVG 结构图
+        if info.smiles:
+            svg = smiles_to_svg(info.smiles)
+            if svg:
+                result["svg"] = svg
+        return result
 
     @staticmethod
     def _chinese_to_english(chinese: str) -> Optional[str]:

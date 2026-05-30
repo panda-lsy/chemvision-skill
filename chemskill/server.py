@@ -26,6 +26,7 @@ from .tools.smiles_inspector import SmilesInspectorTool
 from .tools.safety_lookup import SafetyLookupTool
 from .tools.reaction_predict import ReactionPredictTool
 from .tools.ocr_recognizer import OcrRecognizerTool
+from .utils.svg_renderer import smiles_to_svg, is_rdkit_available
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,7 +110,18 @@ async def health():
         "status": "ok",
         "model": config.ollama_model,
         "tools_count": len(registry),
+        "svg_renderer": "rdkit" if is_rdkit_available() else "unavailable",
     }
+
+
+@app.get("/api/svg/{smiles:path}")
+async def render_svg(smiles: str, width: int = 350, height: int = 300):
+    """直接通过 SMILES 渲染 SVG 结构图"""
+    from fastapi.responses import Response
+    svg = smiles_to_svg(smiles, width=width, height=height)
+    if svg is None:
+        return {"error": "渲染失败，SMILES 无效或 RDKit 未安装"}
+    return Response(content=svg, media_type="image/svg+xml")
 
 
 @app.get("/api/tools/list")
