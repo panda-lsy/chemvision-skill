@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .agent import ChemAgent
@@ -26,7 +29,6 @@ from .tools.smiles_inspector import SmilesInspectorTool
 from .tools.safety_lookup import SafetyLookupTool
 from .tools.reaction_predict import ReactionPredictTool
 from .tools.ocr_recognizer import OcrRecognizerTool
-from .utils.svg_renderer import smiles_to_svg, is_rdkit_available
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,6 +78,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 静态文件（smiles-drawer.js）
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 # ── 请求/响应模型 ──
 
@@ -110,18 +116,17 @@ async def health():
         "status": "ok",
         "model": config.ollama_model,
         "tools_count": len(registry),
-        "svg_renderer": "rdkit" if is_rdkit_available() else "unavailable",
+        "svg_renderer": "smiles-drawer",
     }
 
 
-@app.get("/api/svg/{smiles:path}")
-async def render_svg(smiles: str, width: int = 350, height: int = 300):
-    """直接通过 SMILES 渲染 SVG 结构图"""
-    from fastapi.responses import Response
-    svg = smiles_to_svg(smiles, width=width, height=height)
-    if svg is None:
-        return {"error": "渲染失败，SMILES 无效或 RDKit 未安装"}
-    return Response(content=svg, media_type="image/svg+xml")
+@app.get("/render", response_class=HTMLResponse)
+async def render_page(smiles: str = "", name: str = "", formula: str = "", weight: str = ""):
+    """SMILES 分子结构渲染页面（smiles-drawer SVG）"""
+    html_file = STATIC_DIR / "render.html"
+    if not html_file.exists():
+        return HTMLResponse("<h1>render.html 未找到</h1>", status_code=500)
+    return HTMLResponse(html_file.read_text(encoding="utf-8"))
 
 
 @app.get("/api/tools/list")

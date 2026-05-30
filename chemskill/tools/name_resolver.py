@@ -13,7 +13,7 @@ from .registry import ChemTool
 from ..utils.pubchem_client import PubChemClient
 from ..utils.opsin_client import OpsinClient
 from ..utils.smiles_utils import normalize_smiles, is_likely_smiles
-from ..utils.svg_renderer import smiles_to_svg
+from ..utils.svg_renderer import build_render_url
 
 
 class NameToStructureTool(ChemTool):
@@ -102,7 +102,7 @@ class NameToStructureTool(ChemTool):
                     "iupac_name": opsin_result.iupac_name or query,
                     "source": "opsin",
                     "message": "由 OPSIN 解析成功，未能从 PubChem 获取补充信息",
-                    "svg": smiles_to_svg(opsin_result.smiles),
+                    "render_url": build_render_url(opsin_result.smiles, name=opsin_result.iupac_name),
                 }
 
         # 4. 全部失败
@@ -130,11 +130,14 @@ class NameToStructureTool(ChemTool):
             "source": source,
             "english_hint": english_hint,
         }
-        # 附加 SVG 结构图
+        # 附加结构渲染 URL
         if info.smiles:
-            svg = smiles_to_svg(info.smiles)
-            if svg:
-                result["svg"] = svg
+            result["render_url"] = build_render_url(
+                info.smiles,
+                name=info.iupac_name or original_query,
+                formula=info.molecular_formula,
+                weight=str(info.molecular_weight) if info.molecular_weight else None,
+            )
         return result
 
     @staticmethod

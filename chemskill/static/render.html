@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChemVision 结构渲染</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0B0F1A;
+      color: #E9EEF5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    #card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 28px;
+      max-width: 500px;
+      width: 100%;
+    }
+    #title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #38D5C1;
+      margin-bottom: 6px;
+    }
+    #subtitle {
+      font-size: 12px;
+      color: #A9B6CB;
+      margin-bottom: 18px;
+    }
+    #svg-container {
+      background: #fff;
+      border-radius: 14px;
+      padding: 12px;
+      min-height: 280px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #svg-container svg {
+      max-width: 100%;
+      height: auto;
+    }
+    #info {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #B9C7DE;
+      line-height: 1.6;
+    }
+    #info span { color: #38D5C1; font-weight: 600; }
+    #error {
+      color: #F6B355;
+      font-size: 14px;
+      padding: 20px;
+      text-align: center;
+    }
+    #loading {
+      color: #A9B6CB;
+      font-size: 14px;
+      padding: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div id="card">
+    <div id="title">ChemVision</div>
+    <div id="subtitle">分子结构渲染 — SMILES → SVG</div>
+    <div id="svg-container">
+      <div id="loading">正在渲染结构式...</div>
+    </div>
+    <div id="info"></div>
+  </div>
+  <script src="smiles-drawer.js"></script>
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const smiles = params.get('smiles') || '';
+      const name = params.get('name') || '';
+      const formula = params.get('formula') || '';
+      const weight = params.get('weight') || '';
+      const container = document.getElementById('svg-container');
+      const infoDiv = document.getElementById('info');
+
+      if (!smiles) {
+        container.innerHTML = '<div id="error">缺少 SMILES 参数<br>用法: /render?smiles=CCO</div>';
+        return;
+      }
+
+      // 构建信息行
+      let infoHtml = '';
+      if (name) infoHtml += `<div><span>名称:</span> ${name}</div>`;
+      infoHtml += `<div><span>SMILES:</span> ${smiles}</div>`;
+      if (formula) infoHtml += `<div><span>分子式:</span> ${formula}</div>`;
+      if (weight) infoHtml += `<div><span>分子量:</span> ${weight} g/mol</div>`;
+      infoDiv.innerHTML = infoHtml;
+
+      // 创建 SVG 元素
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('id', 'structure-svg');
+      svg.setAttribute('width', '450');
+      svg.setAttribute('height', '350');
+
+      // 初始化 SmilesDrawer
+      const drawer = new SmilesDrawer.Drawer({
+        width: 450,
+        height: 350,
+        bondThickness: 1.2,
+        fontSizeLarge: 12,
+        fontSizeSmall: 8,
+        padding: 20,
+        theme: 'light',
+      });
+
+      // 解析并绘制
+      SmilesDrawer.parse(smiles, function(tree) {
+        container.innerHTML = '';
+        container.appendChild(svg);
+        drawer.draw(tree, svg, 'light');
+      }, function(err) {
+        container.innerHTML = `<div id="error">SMILES 解析失败: ${err.message || err}<br><br>输入: ${smiles}</div>`;
+      });
+    })();
+  </script>
+</body>
+</html>
