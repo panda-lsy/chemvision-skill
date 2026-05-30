@@ -170,13 +170,26 @@ def _to_mhchem(eq: str) -> str:
 
     转换规则：
     - [条件]紧邻箭头前 → 移到箭头后（mhchem 语法: arrow[above][below]）
-    - 其余内容原样保留（mhchem 自动处理下标/上标/箭头/系数）
+    - 分隔符 + 两边加空格（mhchem 中无空格的 + 会被当作电荷符号）
     """
+    # 1. 重排条件到箭头后
     result = re.sub(
         r'(\[[^\]]+\])(\[[^\]]+\])?(<=>|->|<-)',
         _rearrange_conditions,
         eq,
     )
+    # 2. 给分隔符 + 加空格（避免 mhchem 把 + 当作电荷符号）
+    #    用临时占位符保护 ^{...} 内的 +，再处理，再还原
+    #    保护: Fe^{2+} → Fe^{2§CHARGE§}
+    result = re.sub(r'\^(?:\{([^}]*)\}|([0-9]+[+-]))',
+                    lambda m: '^{' + (m.group(1) or m.group(2)).replace('+', '§CHARGE§').replace('-', '§NEG§') + '}',
+                    result)
+    # 现在安全地给所有剩余 + 加空格
+    result = result.replace('+', ' + ')
+    # 还原电荷符号
+    result = result.replace('§CHARGE§', '+').replace('§NEG§', '-')
+    # 清理多余空格
+    result = re.sub(r'  +', ' ', result).strip()
     return result
 
 
