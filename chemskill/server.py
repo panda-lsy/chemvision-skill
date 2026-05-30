@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ChemVision Agent Skill",
     description="化学工具服务 — PubChem + OPSIN 数据查询 + 分子结构渲染",
-    version="3.0.0",
+    version="3.1.0",
     lifespan=lifespan,
 )
 
@@ -130,9 +130,9 @@ async def get_svg(smiles: str):
 
 @app.get("/api/formula/{equation:path}")
 async def render_formula(equation: str):
-    """化学方程式渲染（纯 HTML + CSS，无外部依赖）
+    """化学方程式渲染（纯 HTML + CSS）
 
-    支持：下标数字（H2O）、上标（Fe2+）、箭头（-> <=>）、条件标注
+    支持：下标（H2O）、上标（Fe^{2+}）、箭头（-> <=>）、条件标注（[加热]在箭头上/下方）
     """
     raw = equation.strip()
     if not raw:
@@ -145,13 +145,16 @@ async def render_formula(equation: str):
         '<style>'
         'body{margin:0;background:#fff;display:flex;align-items:center;justify-content:center;'
         'min-height:100vh;padding:30px;font-family:"Times New Roman",Georgia,serif}'
-        '.eq{text-align:center;padding:20px 32px;font-size:28px;line-height:1.8;letter-spacing:1px}'
-        '.eq sub{font-size:0.7em;vertical-align:sub}'
-        '.eq sup{font-size:0.7em;vertical-align:super}'
-        '.eq .arrow{margin:0 8px;font-size:1.1em}'
+        '.eq{display:inline-flex;align-items:center;flex-wrap:nowrap;font-size:28px;letter-spacing:1px}'
+        '.eq sub{font-size:0.65em;vertical-align:sub}'
+        '.eq sup{font-size:0.65em;vertical-align:super}'
         '.eq .plus{margin:0 6px}'
-        '.eq .cond{display:block;font-size:0.55em;color:#666;margin:-4px 0}'
-        '#label{font-size:12px;color:#999;text-align:center;margin-bottom:14px;font-family:sans-serif}'
+        '.eq .coef{margin-right:2px}'
+        '.arr-box{display:inline-flex;flex-direction:column;align-items:center;'
+        'margin:0 10px;position:relative;min-width:48px}'
+        '.arr-box .cond{font-size:0.42em;color:#555;line-height:1.2;white-space:nowrap}'
+        '.arr-box .sym{font-size:1.1em;line-height:1}'
+        '#label{font-size:12px;color:#999;text-align:center;margin-bottom:16px;font-family:sans-serif}'
         '</style></head><body><div>'
         '<div id="label">ChemVision</div>'
         f'<div class="eq">{html_content}</div>'
@@ -160,18 +163,21 @@ async def render_formula(equation: str):
 
 
 def _render_chem_html(eq: str) -> str:
-    """将化学方程式纯文本转为带下标/上标的 HTML
+    """化学方程式纯文本 -> 带下标/上标/箭头条件的 HTML
 
     规则：
-    - 元素后的数字 → 下标: H2O → H<sub>2</sub>O
-    - 数字在最前（配平系数）→ 保持原样: 2H2O
-    - ^数字 或 ^{内容} → 上标: Fe^{2+} → Fe<sup>2+</sup>
-    - -> → →  <=>  → ⇌
-    - 条件文本在方括号内 → 小字: [加热] → <span class="cond">加热</span>
+    - 元素后的数字 -> 下标: H2O -> H<sub>2</sub>O
+    - 数字在最前（配平系数）-> 保持原样: 2H2O
+    - ^{内容} -> 上标: Fe^{2+} -> Fe<sup>2+</sup>
+    - -> -> →, <=> -> ⇌
+    - [text] 紧邻箭头前 -> 条件在箭头上方
+    - [text] 紧邻箭头后 -> 条件在箭头下方
     """
     result = []
     i = 0
     n = len(eq)
+    pending_above = []  # 箭头前的条件
+    pending_below = []  # 箭头后的条件
 
     while i < n:
         ch = eq[i]
@@ -180,12 +186,17 @@ def _render_chem_html(eq: str) -> str:
         if ch == '[':
             end = eq.find(']', i)
             if end != -1:
-                cond = eq[i + 1:end]
-                result.append(f'<span class="cond">{_html_esc(cond)}</span>')
+                cond_text = _html_esc(eq[i + 1:end])
+                # 先检查后面是否紧跟箭头
+                rest = eq[end + 1:].lstrip()
+                if rest.startswith('->') or rest.startswith('<=>'):
+                    pending_above.append(cond_text)
+                else:
+                    pending_below.append(cond_text)
                 i = end + 1
                 continue
 
-        # 上标: ^{...} 或 ^数字
+        # 上标: ^{...} 或 ^单字符
         if ch == '^':
             i += 1
             if i < n and eq[i] == '{':
@@ -199,42 +210,82 @@ def _render_chem_html(eq: str) -> str:
                 i += 1
                 continue
 
-        # 箭头
+        # 箭头：<=> 或 ->
+        arrow_sym = None
+        arrow_len = 0
         if eq[i:i + 3] == '<=>':
-            result.append('<span class="arrow">⇌</span>')
-            i += 3
-            continue
-        if eq[i:i + 2] == '->':
-            result.append('<span class="arrow">→</span>')
-            i += 2
-            continue
-        if eq[i:i + 2] == '<-':
-            result.append('<span class="arrow">←</span>')
-            i += 2
+            arrow_sym, arrow_len = '⇌', 3
+        elif eq[i:i + 2] == '->':
+            arrow_sym, arrow_len = '→', 2
+        elif eq[i:i + 2] == '<-':
+            arrow_sym, arrow_len = '←', 2
+
+        if arrow_sym:
+            # 检查箭头后是否有紧随的条件（第一个在上，第二个在下）
+            j = i + arrow_len
+            while j < n and eq[j] == ' ':
+                j += 1
+            if j < n and eq[j] == '[':
+                end2 = eq.find(']', j)
+                if end2 != -1:
+                    text1 = _html_esc(eq[j + 1:end2])
+                    i = end2 + 1
+                    # 检查是否还有第二个条件
+                    while i < n and eq[i] == ' ':
+                        i += 1
+                    if i < n and eq[i] == '[':
+                        end3 = eq.find(']', i)
+                        if end3 != -1:
+                            pending_below.append(_html_esc(eq[i + 1:end3]))
+                            pending_above.append(text1)
+                            i = end3 + 1
+                        else:
+                            pending_below.append(text1)
+                    else:
+                        # 只有一个条件 → 放下方
+                        pending_below.append(text1)
+
+            # 渲染带条件的箭头
+            above_html = '<br>'.join(pending_above) if pending_above else '&nbsp;'
+            below_html = '<br>'.join(pending_below) if pending_below else '&nbsp;'
+            result.append(
+                f'<span class="arr-box">'
+                f'<span class="cond">{above_html}</span>'
+                f'<span class="sym">{arrow_sym}</span>'
+                f'<span class="cond">{below_html}</span>'
+                f'</span>'
+            )
+            pending_above.clear()
+            pending_below.clear()
             continue
 
-        # + 号（反应物/产物分隔）
+        # + 号
         if ch in ('+', '＋'):
             result.append('<span class="plus">+</span>')
             i += 1
             continue
 
-        # 字母后的数字 → 下标
+        # 字母后的数字 -> 下标
         if ch.isdigit() and i > 0:
-            # 前一个字符是字母或 ) 或 ] → 这是下标
             prev = eq[i - 1]
             if prev.isalpha() or prev in (')', ']', '}'):
-                # 收集连续数字
                 j = i
                 while j < n and eq[j].isdigit():
                     j += 1
                 result.append(f'<sub>{eq[i:j]}</sub>')
                 i = j
                 continue
-            # 否则（配平系数）→ 原样输出
 
         result.append(_html_esc(ch))
         i += 1
+
+    # 如果有未消费的 pending conditions（极端情况），追加
+    if pending_above or pending_below:
+        result.append(
+            '<span class="arr-box"><span class="cond">'
+            + '<br>'.join(pending_above + pending_below)
+            + '</span><span class="sym">?</span><span class="cond">&nbsp;</span></span>'
+        )
 
     return ''.join(result)
 

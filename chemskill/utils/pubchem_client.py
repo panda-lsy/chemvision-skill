@@ -191,24 +191,33 @@ class PubChemClient:
             return CompoundInfo(error=f"parse_error: {e}")
 
     def _extract_safety_summary(self, data: dict) -> dict:
-        """从 PubChem 安全数据中提取关键信息"""
+        """从 PubChem 安全数据中递归提取 GHS / 危险信息"""
         summary: dict = {}
         try:
             record = data.get("Record", {})
             sections = record.get("Section", [])
-            for section in sections:
-                if section.get("TOCHeading") == "Safety and Hazards":
-                    for subsection in section.get("Section", []):
-                        heading = subsection.get("TOCHeading", "")
-                        if "GHS" in heading or "Hazard" in heading:
-                            infos = subsection.get("Information", [])
-                            for info in infos[:5]:  # 限制数量
-                                name = info.get("Name", "")
-                                value = info.get("Value", {})
-                                if isinstance(value, dict):
-                                    string_val = value.get("StringWithMarkup", [])
-                                    if string_val:
-                                        summary[name] = string_val[0].get("String", "")
+            self._walk_safety(sections, summary, depth=0)
         except Exception:
             pass
         return summary
+
+    def _walk_safety(self, sections: list, summary: dict, depth: int) -> None:
+        """递归遍历 PubChem Section 树，提取含 GHS/Hazard 的数据"""
+        if depth > 6 or len(summary) >= 10:
+            return
+        for section in sections:
+            heading = section.get("TOCHeading", "")
+            # 提取 Information 条目
+            for info in section.get("Information", []):
+                name = info.get("Name", "")
+                value = info.get("Value", {})
+                if not isinstance(value, dict):
+                    continue
+                for item in value.get("StringWithMarkup", []):
+                    text = item.get("String", "")
+                    if text and len(text) > 2:
+                        key = name or heading or f"item_{len(summary)}"
+                        if key not in summary:
+                            summary[key] = text
+            # 递归进入子 Section
+            self._walk_safety(section.get("Section", []), summary, depth + 1)
