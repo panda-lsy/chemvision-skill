@@ -8,8 +8,8 @@ metadata:
 
 # ChemVision AI 化学家
 
-基于 ≤35B 本地模型（Ollama + Qwen3.6-35B-A3B）驱动的化学工具调用 Skill。
-通过 PubChem 和 OPSIN 真实化学数据库查询，减少 LLM 化学幻觉。
+基于本地化学工具 API（PubChem + OPSIN）的化学智能体技能。
+所有化学数据来自真实数据库，非 LLM 推测，大幅减少化学幻觉。
 
 ## When to Use
 
@@ -29,38 +29,66 @@ Use this skill when the user:
 
 ### Should Not Use
 - General knowledge questions unrelated to chemistry
-- Questions about biology, physics, or other non-chemistry sciences
 - Questions that don't involve specific chemical compounds or reactions
 
-## How It Works
+## Step 0: Ensure Service Is Running (MUST DO FIRST)
 
-This skill calls a local chemistry API service running at `http://localhost:8899`.
+Before calling any chemistry tool, you MUST verify the service is running.
+Follow this exact sequence:
 
-**Prerequisites:**
-1. Python 3.10+ with dependencies installed (`pip install -r requirements.txt`)
-2. Ollama running with qwen3.6-35b-a3b model
-3. Chemistry service started: `python -m chemskill.server` (port 8899)
+### 0.1 Health Check
 
-## Tools
+```bash
+curl -s --max-time 3 http://localhost:8899/api/health
+```
+
+- If it returns `{"status":"ok",...}` → service is running, go to Step 1.
+- If it fails or times out → service is NOT running, go to Step 0.2.
+
+### 0.2 Start the Service
+
+The chemistry service lives at `{this_skill_dir}/chemskill/server.py`.
+
+Find the skill directory path first (it contains `SKILL.md` and `chemskill/` subdirectory), then run:
+
+```bash
+cd {this_skill_dir} && pip install -r requirements.txt -q && python -m chemskill.server &
+```
+
+Wait 3-5 seconds for the server to start, then re-check health:
+
+```bash
+sleep 3 && curl -s --max-time 3 http://localhost:8899/api/health
+```
+
+If it still fails, wait a few more seconds and retry once. If it continues to fail, tell the user the service could not start and suggest checking Python/pip.
+
+### 0.3 Service Ready
+
+Once health check passes, proceed with the chemistry tools below.
+
+## Step 1: Call Chemistry Tools
+
+All tools are called via HTTP POST to `http://localhost:8899/api/tools/call`.
 
 ### Tool 1: name_to_structure
 
 Convert chemical name to molecular structure. Supports Chinese, English, IUPAC, and common names.
 
 ```bash
-curl -X POST http://localhost:8899/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
-  -d '{"tool_name": "name_to_structure", "arguments": {"name": "苯甲酸"}}'
+  -d '{"tool_name": "name_to_structure", "arguments": {"name": "化学名称"}}'
 ```
 
-Returns: SMILES, molecular formula, molecular weight, IUPAC name, PubChem CID.
+Returns: SMILES, molecular formula, molecular weight, IUPAC name, PubChem CID, source.
 
 ### Tool 2: inspect_smiles
 
 Query chemical information from a SMILES string.
 
 ```bash
-curl -X POST http://localhost:8899/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name": "inspect_smiles", "arguments": {"smiles": "CCO"}}'
 ```
@@ -70,7 +98,7 @@ curl -X POST http://localhost:8899/api/tools/call \
 Query chemical safety information (GHS hazards, danger classifications).
 
 ```bash
-curl -X POST http://localhost:8899/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name": "safety_info", "arguments": {"query": "苯"}}'
 ```
@@ -80,7 +108,7 @@ curl -X POST http://localhost:8899/api/tools/call \
 Predict chemical reaction products, equations, and conditions.
 
 ```bash
-curl -X POST http://localhost:8899/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name": "predict_reaction", "arguments": {"reactants": "乙酸和乙醇", "conditions": "催化剂硫酸，加热"}}'
 ```
@@ -90,24 +118,34 @@ curl -X POST http://localhost:8899/api/tools/call \
 Recognize chemical compounds from structure images (requires base64 image).
 
 ```bash
-curl -X POST http://localhost:8899/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
-  -d '{"tool_name": "ocr_chemistry", "arguments": {"image_base64": "<base64>"}}'
+  -d '{"tool_name": "ocr_chemistry", "arguments": {"image_base64": "<base64数据>"}}'
 ```
 
 ### Agent Chat (Auto-routing)
 
-Let the LLM automatically decide which tool to call:
+Let the service's built-in Agent automatically decide which tool to call:
 
 ```bash
-curl -X POST http://localhost:8899/api/chat \
+curl -s -X POST http://localhost:8899/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "苯甲酸的分子结构是什么？"}'
 ```
+
+## Step 2: Present Results
+
+After getting the tool result (JSON), present it to the user in a clear format:
+
+- Show the compound name (Chinese + English if available)
+- Show SMILES, molecular formula, molecular weight
+- For safety queries, summarize GHS hazards in plain language
+- For reaction predictions, format the equation clearly
+- If `success` is `false`, explain the error and suggest alternatives
 
 ## Notes
 
 - All chemistry data comes from PubChem real database, not LLM guesses
 - Service runs locally — chemistry data never leaves the machine
-- If the service is not running, tool calls will return connection errors
-- For Swagger UI testing, visit: http://localhost:8899/docs
+- The service uses Ollama + Qwen3.6-35B-A3B as its internal Agent brain
+- For Swagger UI testing: http://localhost:8899/docs
