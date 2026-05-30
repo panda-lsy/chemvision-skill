@@ -91,13 +91,23 @@ Present compound name, SMILES, molecular formula, molecular weight clearly.
 
 ### Structure image
 
-When the result contains `svg_url`, open it with browser_visible to show the molecular structure diagram:
+When the result contains `svg_url`, render and send the molecular structure image to the user:
+
+1. **Open the SVG URL** in a browser:
 
 ```json
 {"action": "open", "url": "http://localhost:8899/api/svg/CCO"}
 ```
 
-Then take a screenshot and send the image to the user along with the chemical data.
+2. **Take a screenshot** of the rendered page and save it to a temporary file (e.g. `chem_structure.png`).
+
+3. **Send the image file** to the user using `send_file_to_user`:
+
+```json
+send_file_to_user(file_path="chem_structure.png", caption="分子结构图")
+```
+
+This delivers the image directly in the chat. Always include the text chemical data (name, SMILES, formula, weight) alongside the image.
 
 ## Notes
 
