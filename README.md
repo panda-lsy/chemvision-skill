@@ -1,143 +1,160 @@
 # ChemVision Agent Skill — AI 化学家智能体
 
-> 基于 ≤35B 本地小模型（Ollama + Qwen3.6-35B-A3B）驱动化学工具调用的 Agent Skill
+> **AI PC Agent Skills 征文活动** 参赛作品
+>
+> 用 ≤35B 本地小模型驱动化学工具调用，通过 PubChem 真实数据库消除 LLM 化学幻觉
+
+## 项目简介
+
+ChemVision Skill 是一个**本地运行**的化学数据查询服务，供 Agent（QwenPaw / Trae）调用。核心创新：
+
+**LLM 不再"凭记忆"生成化学数据，而是通过调用 PubChem / OPSIN 真实化学数据库来验证事实，大幅减少化学幻觉。**
+
+### 架构
+
+```
+用户: "苯甲酸的分子结构是什么？"
+    ↓
+QwenPaw + Qwen3.6-35B-A3B（本地 ≤35B 模型）
+    ↓ 读取 SKILL.md，识别为化学问题
+    ↓ 调用 POST /api/tools/call
+┌───────────────────────────────────────┐
+│  name_to_structure → PubChem + OPSIN  │  化学数据查询服务
+│  inspect_smiles    → PubChem          │  （纯数据，无 LLM 依赖）
+│  safety_info       → PubChem Safety   │
+│  predict_reaction  → PubChem          │
+└──────────┬────────────────────────────┘
+           ↓ JSON 结果 + svg_url
+    Agent 格式化回答 + 打开分子结构图截图
+    ↓
+send_file_to_user → 用户看到化学数据 + 分子结构图
+```
+
+### 4 个化学工具
+
+| 工具                  | 功能                                     | 数据源          |
+| --------------------- | ---------------------------------------- | --------------- |
+| `name_to_structure` | 化学名称→SMILES/分子式/分子量 + 结构图  | PubChem + OPSIN |
+| `inspect_smiles`    | SMILES→化学信息查询                     | PubChem         |
+| `safety_info`       | 化学品安全信息（GHS、危险标识）          | PubChem Safety  |
+| `predict_reaction`  | 反应物化学数据查询（Agent 自行推测反应） | PubChem         |
+
+### 渲染能力
+
+| 端点                      | 功能                                   |
+| ------------------------- | -------------------------------------- |
+| `GET /api/svg/{smiles}` | 分子结构图（smiles-drawer.js）         |
+| `GET /api/formula/{eq}` | 化学方程式（自动下标、箭头、条件标注） |
 
 ## 快速开始
 
-### 1. 启动化学工具服务
+### 前置要求
+
+1. **Python 3.10+**
+2. **QwenPaw** 或 **Trae**（Agent 框架）
+
+### 安装
 
 ```bash
 cd chemvision-skill
 pip install -r requirements.txt
-python -m chemskill.server
-# 服务运行在 http://localhost:8899
 ```
 
-### 2. 安装 Skill 到 QwenPaw
-
-**方式 A：直接复制（推荐）**
-
-```powershell
-# Windows PowerShell
-Copy-Item -Recurse skill_pool\chemvision $env:USERPROFILE\.qwenpaw\skill_pool\
-
-# 或复制到工作区
-Copy-Item -Recurse skill_workspaces\default\skills\chemvision $env:USERPROFILE\.qwenpaw\workspaces\default\skills\
-```
+### 启动服务
 
 ```bash
-# macOS / Linux
-cp -r skill_pool/chemvision ~/.qwenpaw/skill_pool/
-
-# 或复制到工作区
-cp -r skill_workspaces/default/skills/chemvision ~/.qwenpaw/workspaces/default/skills/
+python manage.py start
+# 输出: {"status": "started", "pid": 12345, "port": 8899}
 ```
 
-复制后重启 QwenPaw 即可。
-
-**方式 B：手动操作**
-
-1. 打开 `~/.qwenpaw/skill_pool/` 目录
-2. 将 `skill_pool/chemvision/` 文件夹整个复制进去
-3. 确保 `skill.json` 中包含 `"chemvision"` 条目
-4. 重启 QwenPaw
-
-### 3. 在 QwenPaw 中测试
-
-在 QwenPaw 对话框中输入化学问题，例如：
-
-- "苯甲酸的分子结构是什么？"
-- "CC(=O)Oc1ccccc1C(=O)O 是什么物质？"
-- "苯的安全风险有哪些？"
-- "乙酸和乙醇反应生成什么？"
-
-QwenPaw 会自动识别为化学相关问题，调用 ChemVision Skill。
-
-## 架构
-
-```
-用户提问
-    ↓
-QwenPaw + Qwen3.6-35B-A3B（本地 ≤35B 模型）
-    ↓ 读取 SKILL.md，决定调用工具
-    ↓
-http://localhost:8899/api/tools/call
-    ↓
-┌──────────────────────────────────────────┐
-│  name_to_structure │ inspect_smiles      │ ← 5 个化学工具
-│  safety_info       │ predict_reaction    │
-│  ocr_chemistry                            │
-└──────┬───────────────────────────────────┘
-       ↓
-┌──────────────────────────────────────────┐
-│  PubChem API  │  OPSIN API  │  LLM 推理  │ ← 真实数据源
-└──────────────────────────────────────────┘
-```
-
-## 5 个化学工具
-
-| 工具 | 功能 | 数据源 |
-|------|------|--------|
-| `name_to_structure` | 化学名称→SMILES/分子式/分子量 | PubChem + OPSIN |
-| `inspect_smiles` | SMILES→化学信息查询 | PubChem |
-| `safety_info` | 化学品安全信息（GHS、危险标识） | PubChem Safety |
-| `predict_reaction` | 反应方程式推测与条件建议 | LLM 推理 |
-| `ocr_chemistry` | 化学结构图片识别 | 多模态 LLM |
-
-## 直接 API 测试（不通过 QwenPaw）
+### 管理服务
 
 ```bash
-# 健康检查
+python manage.py status    # 查看状态
+python manage.py stop      # 安全停止（不影响 QwenPaw）
+python manage.py restart   # 重启
+```
+
+### 在 QwenPaw 中使用
+
+1. 将 `chemvision-skill.zip` 导入 QwenPaw
+2. 对话框输入：`苯甲酸的分子结构是什么？`
+
+## 测试验证
+
+### 健康检查
+
+```bash
 curl http://localhost:8899/api/health
+# {"status":"ok","tools_count":4,"tools":["name_to_structure","inspect_smiles","safety_info","predict_reaction"]}
+```
 
-# Agent 对话
-curl -X POST http://localhost:8899/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "乙醇的 SMILES 和分子量"}'
+### 化学名称解析
 
-# 直接工具调用
+```bash
 curl -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
-  -d '{"tool_name": "name_to_structure", "arguments": {"name": "ethanol"}}'
-
-# Swagger UI（可视化测试）
-# 浏览器访问 http://localhost:8899/docs
+  -d '{"tool_name":"name_to_structure","arguments":{"name":"苯甲酸"}}'
 ```
+
+返回 SMILES、分子式、分子量、`svg_url`（分子结构图链接）。
+
+### 安全信息查询
+
+```bash
+curl -X POST http://localhost:8899/api/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name":"safety_info","arguments":{"query":"benzene"}}'
+```
+
+返回 GHS 危险标识、危害声明、防护措施等 42+ 字段。
+
+### 化学方程式渲染
+
+```
+浏览器打开: http://localhost:8899/api/formula/CH3COOH+C2H5OH<=>[浓硫酸][加热]CH3COOC2H5+H2O
+```
+
+渲染效果：
+
+```
+                浓硫酸
+CH₃COOH + C₂H₅OH  ⇌  CH₃COOC₂H₅ + H₂O
+                 加热
+```
+
+## 设计理念
+
+### 为什么选择"化学"场景？
+
+化学是 LLM 幻觉最严重的领域之一。SMILES、分子式、分子量等数据必须精确——一个数字错误就是完全不同的物质。传统 LLM 凭记忆生成的化学数据经常出错。
+
+**我们的解决方案**：Agent 的"大脑"负责理解用户意图和组织回答，但具体化学数据全部来自 PubChem 真实数据库。这就是 **Agentic AI 的核心价值** —— LLM 负责推理，工具负责事实。
+
+### 工程亮点
+
+- **零 LLM 依赖**：工具服务本身不调用任何模型，纯数据查询
+- **双源容错**：PubChem + OPSIN 双数据源，主源失败自动切换
+- **中文智能映射**：内置高频中文化学名词典（乙醇→ethanol），无需 LLM 翻译
+- **安全进程管理**：`manage.py` 用 PID 文件精确追踪，不影响 QwenPaw 进程
+- **纯 HTML 渲染**：分子结构图（smiles-drawer.js）+ 化学方程式（CSS 下标/箭头），无外部依赖
 
 ## 项目结构
 
 ```
 chemvision-skill/
-├── skill_pool/             # QwenPaw 技能池格式
-│   ├── skill.json          # 池清单
-│   └── chemvision/
-│       └── SKILL.md        # 技能定义（QwenPaw 读取此文件）
-├── skill_workspaces/       # QwenPaw 工作区格式
-│   └── default/
-│       ├── skill.json
-│       └── skills/chemvision/SKILL.md
-├── chemskill/              # Python 核心代码
-│   ├── agent.py            # Agent 核心（Ollama function calling）
-│   ├── server.py           # FastAPI 服务端
-│   ├── tools/              # 5 个化学工具
-│   ├── prompts/            # 系统提示词
-│   └── utils/              # PubChem/OPSIN 客户端
-├── skill_manifest/         # ModelScope 发布用清单（备用）
-├── requirements.txt
-└── README.md
+├── SKILL.md              ← QwenPaw 读取的技能定义
+├── manage.py             ← 服务生命周期管理
+├── chemskill/
+│   ├── server.py         ← FastAPI 工具服务（4 端点）
+│   ├── config.py         ← 配置
+│   ├── tools/            ← 4 个化学工具
+│   ├── utils/            ← PubChem + OPSIN 客户端
+│   └── static/
+│       └── smiles-drawer.js  ← 分子结构渲染引擎
+├── requirements.txt      ← 仅 4 个依赖（fastapi, uvicorn, httpx, pydantic）
+└── pyproject.toml
 ```
-
-## 比赛信息
-
-本项目参加 **AI PC Agent Skills 征文活动**（Intel + 魔搭社区）。
-
-| 标签 | 值 |
-|------|-----|
-| 技术栈 | Python + FastAPI + Ollama + Qwen3.6-35B-A3B |
-| Agent 框架 | QwenPaw + 自研 function calling router |
-| 化学数据源 | PubChem REST API + OPSIN |
-| 运行环境 | 纯本地 (Localhost) |
-| Skill 标签 | AIPC, chemistry, agent, tool-calling |
 
 ## License
 
