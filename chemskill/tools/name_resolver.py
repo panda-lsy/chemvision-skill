@@ -1,7 +1,9 @@
 """工具1: 化学名称→SMILES 结构解析
 
-输入化学名称（中文/英文/IUPAC/俗名），输出 SMILES、分子式、分子量等结构信息。
+输入化学名称（英文/IUPAC/俗名），输出 SMILES、分子式、分子量等结构信息。
 数据源：PubChem API + OPSIN（双源容错）
+
+注意：PubChem 不支持中文名查询。如输入中文名，工具会返回 hint 提示 Agent 翻译为英文后重试。
 """
 
 from __future__ import annotations
@@ -35,9 +37,10 @@ class NameToStructureTool(ChemTool):
     def description(self) -> str:
         return (
             "将化学名称转换为分子结构信息。"
-            "支持中文名、英文名、IUPAC名、俗名等输入。"
-            "返回 SMILES、分子式、分子量、标准名称等。"
-            "适用于：用户询问某化学物质的结构时调用。"
+            "支持英文名、IUPAC名、俗名、SMILES 输入。"
+            "返回 SMILES、分子式、分子量、标准名称、结构图 URL。"
+            "注意：PubChem 不支持中文名查询，如输入中文名返回 not_found，"
+            "请 Agent 将中文翻译为英文后重新调用本工具。"
         )
 
     @property
@@ -47,14 +50,13 @@ class NameToStructureTool(ChemTool):
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "化学名称，如'苯甲酸'、'aspirin'、'ethanol'、'2-甲基丙烷'",
+                    "description": "化学名称（英文），如 'benzoic acid'、'aspirin'、'ethanol'",
                 },
             },
             "required": ["name"],
         }
 
     async def execute(self, name: str = "", **kwargs) -> dict:
-        """执行名称→结构解析"""
         query = name.strip()
         if not query:
             return {"success": False, "error": "请输入化学名称"}
@@ -65,60 +67,47 @@ class NameToStructureTool(ChemTool):
             if info.smiles:
                 return self._build_success(info, query, source="pubchem_direct")
 
-        # 中文名检测
+        # 中文名检测 → 返回 hint
         is_chinese = bool(re.search(r'[一-鿿]', query))
+        if is_chinese:
+            return {
+                "success": False,
+                "query": query,
+                "error": "pubchem_not_support_chinese",
+                "hint": f"PubChem 不支持中文名查询，请将 '{query}' 翻译为英文后重新调用",
+            }
 
         # 1. 直接用名称查 PubChem
         info = await self._pubchem.query_by_name(query)
         if info.smiles:
             return self._build_success(info, query, source="pubchem")
 
-        # 2. 如果是中文，尝试常见翻译映射
-        if is_chinese:
-            translated = self._chinese_to_english(query)
-            if translated:
-                info = await self._pubchem.query_by_name(translated)
-                if info.smiles:
-                    return self._build_success(
-                        info, query, source="pubchem+translation", english_hint=translated
-                    )
+        # 2. OPSIN 解析（IUPAC 英文名）
+        opsin_result = await self._opsin.query(query)
+        if opsin_result.smiles:
+            pubchem_info = await self._pubchem.query_by_smiles(opsin_result.smiles)
+            if pubchem_info.smiles:
+                return self._build_success(pubchem_info, query, source="opsin+pubchem")
+            return {
+                "success": True,
+                "query": query,
+                "smiles": opsin_result.smiles,
+                "molecular_formula": opsin_result.molecular_formula or "",
+                "molecular_weight": opsin_result.molecular_weight or 0,
+                "iupac_name": opsin_result.iupac_name or query,
+                "source": "opsin",
+                "svg_url": build_svg_url(opsin_result.smiles),
+            }
 
-        # 3. OPSIN 解析（仅英文）
-        if not is_chinese:
-            opsin_result = await self._opsin.query(query)
-            if opsin_result.smiles:
-                # 用 SMILES 回查 PubChem 获取完整信息
-                pubchem_info = await self._pubchem.query_by_smiles(opsin_result.smiles)
-                if pubchem_info.smiles:
-                    return self._build_success(
-                        pubchem_info, query, source="opsin+pubchem"
-                    )
-                return {
-                    "success": True,
-                    "query": query,
-                    "smiles": opsin_result.smiles,
-                    "molecular_formula": opsin_result.molecular_formula or "",
-                    "molecular_weight": opsin_result.molecular_weight or 0,
-                    "iupac_name": opsin_result.iupac_name or query,
-                    "source": "opsin",
-                    "message": "由 OPSIN 解析成功，未能从 PubChem 获取补充信息",
-                    "svg_url": build_svg_url(opsin_result.smiles),
-                }
-
-        # 4. 全部失败
+        # 3. 全部失败
         return {
             "success": False,
             "query": query,
-            "error": f"未能解析化学名称 '{query}'，请检查名称是否正确，或尝试使用英文 IUPAC 名称",
+            "error": "not_found",
+            "hint": f"PubChem 和 OPSIN 均未找到 '{query}'，请检查英文名称是否正确",
         }
 
-    def _build_success(
-        self,
-        info,
-        original_query: str,
-        source: str = "pubchem",
-        english_hint: Optional[str] = None,
-    ) -> dict:
+    def _build_success(self, info, original_query: str, source: str = "pubchem") -> dict:
         result = {
             "success": True,
             "query": original_query,
@@ -128,39 +117,7 @@ class NameToStructureTool(ChemTool):
             "iupac_name": info.iupac_name or "",
             "cid": info.cid,
             "source": source,
-            "english_hint": english_hint,
         }
-        # 附加结构渲染 URL
         if info.smiles:
             result["svg_url"] = build_svg_url(info.smiles)
         return result
-
-    @staticmethod
-    def _chinese_to_english(chinese: str) -> Optional[str]:
-        """常见中文化学名→英文映射（内置高频词典，避免 LLM 调用）"""
-        mapping = {
-            "水": "water", "酒精": "ethanol", "乙醇": "ethanol",
-            "甲醇": "methanol", "丙酮": "acetone", "苯": "benzene",
-            "甲苯": "toluene", "苯甲酸": "benzoic acid", "乙酸": "acetic acid",
-            "盐酸": "hydrochloric acid", "硫酸": "sulfuric acid",
-            "硝酸": "nitric acid", "氢氧化钠": "sodium hydroxide",
-            "氢氧化钾": "potassium hydroxide", "氯化钠": "sodium chloride",
-            "碳酸钙": "calcium carbonate", "碳酸钠": "sodium carbonate",
-            "葡萄糖": "glucose", "蔗糖": "sucrose", "淀粉": "starch",
-            "尿素": "urea", "阿司匹林": "aspirin", "咖啡因": "caffeine",
-            "尼古丁": "nicotine", "乙醚": "diethyl ether",
-            "氯仿": "chloroform", "乙酸乙酯": "ethyl acetate",
-            "苯酚": "phenol", "甲醛": "formaldehyde", "乙醛": "acetaldehyde",
-            "乙炔": "acetylene", "乙烯": "ethylene", "丙烯": "propylene",
-            "环己烷": "cyclohexane", "萘": "naphthalene", "蒽": "anthracene",
-            "吡啶": "pyridine", "呋喃": "furan", "噻吩": "thiophene",
-            "吲哚": "indole", "嘌呤": "purine", "嘧啶": "pyrimidine",
-        }
-        # 精确匹配
-        if chinese in mapping:
-            return mapping[chinese]
-        # 去掉"酸"后缀等常见变体
-        clean = chinese.rstrip("溶液固体气体液体")
-        if clean in mapping:
-            return mapping[clean]
-        return None

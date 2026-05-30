@@ -40,6 +40,8 @@ curl -s -X POST http://localhost:8899/api/tools/call \
 
 Returns SMILES, formula, weight, `svg_url`.
 
+**Important**: Tools only accept English names. If the user asks in Chinese, Agent must translate to English first, then call the tool. Example: "苯甲酸" → "benzoic acid".
+
 ### inspect_smiles
 
 ```bash
@@ -53,7 +55,7 @@ curl -s -X POST http://localhost:8899/api/tools/call \
 ```bash
 curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
-  -d '{"tool_name":"safety_info","arguments":{"query":"苯"}}'
+  -d '{"tool_name":"safety_info","arguments":{"query":"benzene"}}'
 ```
 
 ### predict_reaction
@@ -63,7 +65,7 @@ Queries chemical data for reactants. Agent should answer the reaction itself.
 ```bash
 curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
-  -d '{"tool_name":"predict_reaction","arguments":{"reactants":"乙酸和乙醇"}}'
+  -d '{"tool_name":"predict_reaction","arguments":{"reactants":"acetic acid + ethanol"}}'
 ```
 
 ## Step 2: Show Results
