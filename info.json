@@ -1,0 +1,7 @@
+{
+  "venv_name": "chemvision-skill",
+  "python_version": "3.10",
+  "mem_need_gb": 0.5,
+  "server_alive_timeout": 300,
+  "models": []
+}
