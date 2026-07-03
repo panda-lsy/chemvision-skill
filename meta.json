@@ -1,16 +1,16 @@
-{
-  "display_name": "化学智能查询",
-  "display_description": "基于 PubChem 真实数据库的化学数据查询，消除 LLM 化学幻觉",
-  "detail_describe": "输入化学名称（英文），返回 SMILES、分子式、分子量、分子结构图、GHS 安全信息等。数据全部来自 PubChem 和 OPSIN 真实化学数据库，零 LLM 依赖，支持 KaTeX 化学方程式渲染。适用于化学教育、科研辅助、药企研发、实验安全等场景。",
-  "name": "chemvision-chemistry-agent",
-  "icon": "",
-  "use_cases": [
-    "查询化学名称对应的分子结构（SMILES、分子式、分子量）",
-    "查询化学品安全信息（GHS 危险标识、危害声明）",
-    "查询反应物化学数据并推测反应方程式",
-    "渲染分子结构图和化学方程式",
-    "化学教育和科研辅助"
-  ],
-  "author": "ChemVision Team",
-  "version": "3.2.0"
+﻿{
+    "display_name":  "化学智能查询",
+    "display_description":  "基于 PubChem 真实数据库的化学数据查询，消除 LLM 化学幻觉",
+    "detail_describe":  "输入化学名称（英文），返回 SMILES、分子式、分子量、分子结构图、GHS 安全信息等。数据全部来自 PubChem 和 OPSIN 真实化学数据库，零 LLM 依赖，支持 KaTeX 化学方程式渲染。适用于化学教育、科研辅助、药企研发、实验安全等场景。",
+    "name":  "chemvision-chemistry-agent",
+    "icon":  "",
+    "use_cases":  [
+                      "查询化学名称对应的分子结构（SMILES、分子式、分子量）",
+                      "查询化学品安全信息（GHS 危险标识、危害声明）",
+                      "查询反应物化学数据并推测反应方程式",
+                      "渲染分子结构图和化学方程式",
+                      "化学教育和科研辅助"
+                  ],
+    "author":  "ChemVision Team",
+    "version":  "3.2.0"
 }
