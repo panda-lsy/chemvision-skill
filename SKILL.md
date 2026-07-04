@@ -2,7 +2,7 @@
 name: chemvision
 description: Use this skill when the user asks about chemistry — chemical names, molecular structures (SMILES), molecular formulas, molecular weights, safety information (GHS hazards), or chemical reaction predictions. Supports Chinese and English chemical names, IUPAC names, and common names. Calls PubChem and OPSIN real chemistry databases to reduce LLM hallucinations. Returns molecular structure images and chemical equation renderings.
 metadata:
-  skill_version: "3.0.0"
+  skill_version: "3.3.0"
   tags: ["AIPC", "chemistry", "agent", "tool-calling", "pubchem"]
 ---
 
@@ -23,17 +23,19 @@ metadata:
 cd {this_skill_dir} && python manage.py status
 ```
 
+> **Port note**: Default port is 8899. If occupied, the service auto-selects the next free port (8900, 8901...). Run `python manage.py status` to see the actual port. The service uses `CHEMVISION_PORT` env var (not `SERVER_PORT`) to avoid conflicts with the Agent host process.
+
 If not running: `python manage.py start`
 To stop: `python manage.py stop`
 
 ## Step 1: Call Tools
 
-POST to `http://localhost:{PORT}/api/tools/call`（端口默认 8899，若被占用自动递增；运行 `python manage.py status` 可查实际端口）.
+POST to `http://localhost:8899/api/tools/call`.
 
 ### name_to_structure
 
 ```bash
-curl -s -X POST http://localhost:{PORT}/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"name_to_structure","arguments":{"name":"苯甲酸"}}'
 ```
@@ -45,7 +47,7 @@ Returns SMILES, formula, weight, `svg_url`.
 ### inspect_smiles
 
 ```bash
-curl -s -X POST http://localhost:{PORT}/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"inspect_smiles","arguments":{"smiles":"CCO"}}'
 ```
@@ -53,7 +55,7 @@ curl -s -X POST http://localhost:{PORT}/api/tools/call \
 ### safety_info
 
 ```bash
-curl -s -X POST http://localhost:{PORT}/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"safety_info","arguments":{"query":"benzene"}}'
 ```
@@ -63,7 +65,7 @@ curl -s -X POST http://localhost:{PORT}/api/tools/call \
 Queries chemical data for reactants. Agent should answer the reaction itself.
 
 ```bash
-curl -s -X POST http://localhost:{PORT}/api/tools/call \
+curl -s -X POST http://localhost:8899/api/tools/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"predict_reaction","arguments":{"reactants":"acetic acid + ethanol"}}'
 ```
@@ -80,7 +82,7 @@ curl -s -X POST http://localhost:{PORT}/api/tools/call \
 
 After answering a reaction, render the equation:
 
-1. Open in browser: `http://localhost:{PORT}/api/formula/{equation}`
+1. Open in browser: `http://localhost:8899/api/formula/{equation}`
 2. Screenshot → save file
 3. Send to user: `send_file_to_user(file_path="xxx.png", caption="化学方程式")`
 
@@ -100,4 +102,4 @@ If `predict_reaction` fails, the Agent answers directly using its own chemistry 
 - Pure data tools — NO LLM dependency, ALL reasoning by Agent
 - All data from PubChem/OPSIN real databases
 - Local only — chemistry data never leaves the machine
-- Swagger UI: http://localhost:{PORT}/docs
+- Swagger UI: http://localhost:8899/docs
