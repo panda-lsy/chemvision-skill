@@ -10,10 +10,10 @@ class SkillConfig:
 
     # FastAPI 服务
     server_host: str = field(
-        default_factory=lambda: os.getenv("SERVER_HOST", "0.0.0.0")
+        default_factory=lambda: os.getenv("CHEMVISION_HOST", "0.0.0.0")
     )
     server_port: int = field(
-        default_factory=lambda: int(os.getenv("SERVER_PORT", "8899"))
+        default_factory=lambda: int(os.getenv("CHEMVISION_PORT", "8899"))
     )
 
     # PubChem API
